@@ -130,6 +130,11 @@
 
   <div class="divider"></div>
 
+  <h2 style="margin-top:4px">📋 Détails des pointages</h2>
+  <div id="adminRecords"></div>
+
+  <div class="divider"></div>
+
   <label class="field" style="margin-bottom:12px">Tarif horaire (€)
     <input type="number" id="rateInput" min="0" step="0.5">
   </label>
@@ -385,6 +390,34 @@ function render(){
 
   document.getElementById('rateInput').value = data.rate;
   renderWorkerAdmin();
+  renderAdminRecords();
+}
+
+function renderAdminRecords(){
+  const el = document.getElementById('adminRecords');
+  if(!el) return;
+  let html = '';
+  data.workers.forEach(w=>{
+    const recs = data.records.filter(r=>r.workerId===w.id);
+    const open = data.openSessions[w.id];
+    if(recs.length===0 && !open) return;
+    const totH = recs.reduce((s,r)=>s+r.hours,0);
+    html += `<div style="margin:12px 0 6px;font-weight:600;color:var(--text)">${w.name}
+      <span style="color:var(--gold);font-weight:600">— ${fmt(totH)} h · ${fmt(totH*data.rate)} €</span></div>`;
+    if(open){
+      html += `<div class="rec" style="border:1px solid var(--green)">
+        <div class="info">🟢 ${dayName(open.date)} ${open.date}<small>Entrée ${open.in} · sortie non enregistrée</small></div>
+      </div>`;
+    }
+    recs.forEach(r=>{
+      const idx = data.records.indexOf(r);
+      html += `<div class="rec">
+        <div class="info">${dayName(r.date)} ${r.date}<small>${r.in} → ${r.out} · ${fmt(r.hours)} h · ${fmt(r.hours*data.rate)} €</small></div>
+        <button class="del" onclick="askDelete(${idx})">🗑️</button>
+      </div>`;
+    });
+  });
+  el.innerHTML = html || '<div class="empty" style="padding:8px">Aucun pointage.</div>';
 }
 
 function renderWorkerAdmin(){
@@ -418,13 +451,8 @@ function removeWorker(id){
 }
 
 // ---- SUPPRESSION (avec PIN) ----
-let pendingDelete = null;
-function askDelete(i){ pendingDelete = i; openPin(); }
-function clearAll(){
-  if(confirm("Supprimer TOUS les enregistrements ?")){
-    data.records=[]; data.openSessions={}; save(); render();
-  }
-}
+function askDelete(i){ openPin({type:'delete', index:i}); }
+function clearAll(){ openPin({type:'clearAll'}); }
 
 // ---- ADMIN ----
 function saveRate(){
@@ -435,15 +463,15 @@ function saveRate(){
 function lockAdmin(){ document.getElementById('adminPanel').classList.remove('show'); }
 
 // ---- PIN ----
-let pinEntry="", pinMode="admin";
-function openPin(){
-  pinMode = pendingDelete!==null ? "delete" : "admin";
+let pinEntry="", pinAction=null;
+function openPin(action){
+  pinAction = action || {type:'admin'};
   pinEntry=""; updateDots();
   document.getElementById('pinOverlay').classList.add('show');
 }
 function closePin(){
   document.getElementById('pinOverlay').classList.remove('show');
-  pinEntry=""; pendingDelete=null;
+  pinEntry=""; pinAction=null;
 }
 function press(n){
   if(pinEntry.length>=6) return;
@@ -459,13 +487,15 @@ function updateDots(){
 function checkPin(){
   if(pinEntry===ADMIN_PIN){
     document.getElementById('pinOverlay').classList.remove('show');
-    if(pinMode==="delete" && pendingDelete!==null){
-      data.records.splice(pendingDelete,1);
-      pendingDelete=null; save(); render();
+    const a = pinAction || {type:'admin'};
+    if(a.type==='delete'){
+      data.records.splice(a.index,1); save(); render();
+    } else if(a.type==='clearAll'){
+      data.records=[]; data.openSessions={}; save(); render();
     } else {
       document.getElementById('adminPanel').classList.add('show');
     }
-    pinEntry="";
+    pinEntry=""; pinAction=null;
   } else {
     document.querySelectorAll('#dots .dot').forEach(d=>d.className="dot error");
     setTimeout(()=>{ pinEntry=""; updateDots(); },400);
