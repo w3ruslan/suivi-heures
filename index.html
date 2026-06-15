@@ -205,7 +205,12 @@ if(!data.openSessions) data.openSessions = {};
 if(!data.records) data.records = [];
 
 function saveLocal(){ localStorage.setItem(LS_KEY, JSON.stringify(data)); }
-function save(){ saveLocal(); scheduleSync(); }
+function save(){ saveLocal(); localStorage.setItem('pendingSync','1'); scheduleSync(); }
+function requireToken(){
+  if(ghToken) return true;
+  alert("Pour enregistrer ou modifier, connectez d'abord votre token :\nPanneau Admin (210919) → Synchronisation.");
+  return false;
+}
 
 // ---- SYNCHRONISATION GITHUB ----
 const SYNC = { owner:"w3ruslan", repo:"suivi-heures-data", path:"data.json", branch:"main" };
@@ -248,9 +253,17 @@ async function pullData(){
     const j = await r.json();
     ghSha = j.sha;
     const cloud = normalize(JSON.parse(b64decode(j.content)));
-    // Protection : si le cloud est vide mais qu'on a des données locales, on garde le local
-    if(isEmpty(cloud) && !isEmpty(data)){
-      if(ghToken) pushData();   // on envoie le local pour amorcer le cloud
+    const pending = localStorage.getItem('pendingSync')==='1';
+    if(pending && ghToken){
+      // changements locaux pas encore envoyés : on pousse au lieu d'écraser (anti perte)
+      await pushData(); return;
+    } else if(pending && !ghToken){
+      // données locales non synchronisées : on les garde, mais il faut un token
+      render();
+      setSyncStatus("⚠️ Non synchronisé — connectez le token");
+      return;
+    } else if(isEmpty(cloud) && !isEmpty(data)){
+      if(ghToken){ await pushData(); return; }
     } else {
       data = cloud; saveLocal(); render();
     }
@@ -280,6 +293,7 @@ async function pushData(){
     const r = await fetch(ghUrl(), {method:"PUT", headers:ghHeaders(), body:JSON.stringify(body)});
     if(!r.ok) throw new Error("HTTP "+r.status);
     ghSha = (await r.json()).content.sha;
+    localStorage.removeItem('pendingSync');
     setSyncStatus("☁️ Synchronisé");
   }catch(e){ setSyncStatus("⚠️ Erreur ("+e.message+")"); }
 }
@@ -331,6 +345,7 @@ function updateDayLabel(){
 
 // ---- ENTRÉE / SORTIE ----
 function doEntree(){
+  if(!requireToken()) return;
   const wid = currentWorkerId();
   if(!wid){ alert("Ajoutez et sélectionnez d'abord un employé via le panneau admin."); return; }
   if(data.openSessions[wid]){ alert("Une entrée est déjà en cours. Enregistrez d'abord la sortie."); return; }
@@ -341,6 +356,7 @@ function doEntree(){
 }
 
 function doSortie(){
+  if(!requireToken()) return;
   const wid = currentWorkerId();
   if(!wid){ alert("Ajoutez et sélectionnez d'abord un employé via le panneau admin."); return; }
   const open = data.openSessions[wid];
@@ -443,6 +459,7 @@ function renderWorkerAdmin(){
 
 // ---- GESTION DES EMPLOYÉS (admin) ----
 function addWorker(){
+  if(!requireToken()) return;
   const inp = document.getElementById('newWorkerName');
   const name = inp.value.trim();
   if(!name){ alert("Entrez un nom."); return; }
@@ -460,11 +477,12 @@ function removeWorker(id){
 }
 
 // ---- SUPPRESSION (avec PIN) ----
-function askDelete(i){ openPin({type:'delete', index:i}); }
-function clearAll(){ openPin({type:'clearAll'}); }
+function askDelete(i){ if(!requireToken()) return; openPin({type:'delete', index:i}); }
+function clearAll(){ if(!requireToken()) return; openPin({type:'clearAll'}); }
 
 // ---- ADMIN ----
 function saveRate(){
+  if(!requireToken()) return;
   const v = parseFloat(document.getElementById('rateInput').value);
   if(isNaN(v)||v<0){ alert("Entrez un tarif valide."); return; }
   data.rate=v; save(); render(); alert("Tarif enregistré : "+v+" €/h");
