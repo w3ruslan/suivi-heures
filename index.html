@@ -96,7 +96,8 @@
   <div id="openSessionBox"></div>
   <div class="row">
     <label class="field">Date
-      <input type="date" id="inDate">
+      <input type="date" id="inDate" onchange="updateDayLabel()">
+      <span id="dayLabel" style="color:var(--accent);font-weight:600;font-size:13px"></span>
     </label>
     <label class="field">Heure
       <input type="time" id="inTime">
@@ -197,6 +198,14 @@ function diffHours(d1,t1,d2,t2){
 }
 function fmt(n){ return Number(n).toFixed(2).replace(/\.00$/,'').replace(/(\.\d)0$/,'$1'); }
 function currentWorkerId(){ return document.getElementById('workerSelect').value; }
+function dayName(dateStr){
+  if(!dateStr) return '';
+  const s=new Date(dateStr+"T00:00").toLocaleDateString('fr-FR',{weekday:'long'});
+  return s.charAt(0).toUpperCase()+s.slice(1);
+}
+function updateDayLabel(){
+  document.getElementById('dayLabel').textContent = dayName(document.getElementById('inDate').value);
+}
 
 // ---- ENTRÉE / SORTIE ----
 function handleAction(){
@@ -248,6 +257,7 @@ function render(){
     document.getElementById('inDate').value = todayDate();
     document.getElementById('inTime').value = nowTime();
   }
+  updateDayLabel();
 
   const list = document.getElementById('recordList');
   if(recs.length===0){
@@ -256,7 +266,7 @@ function render(){
     list.innerHTML = recs.map(r=>{
       const idx = data.records.indexOf(r);
       return `<li class="rec">
-        <div class="info">${r.date}<small>${r.in} → ${r.out} · ${fmt(r.hours)} h</small></div>
+        <div class="info">${dayName(r.date)} ${r.date}<small>${r.in} → ${r.out} · ${fmt(r.hours)} h</small></div>
         <div class="amount"><b>${fmt(r.hours*data.rate)} €</b></div>
         <button class="del" onclick="askDelete(${idx})">🗑️</button>
       </li>`;
@@ -355,6 +365,7 @@ function checkPin(){
 // ---- DÉMARRAGE ----
 document.getElementById('inDate').value = todayDate();
 document.getElementById('inTime').value = nowTime();
+updateDayLabel();
 render();
 
 document.addEventListener('visibilitychange', ()=>{
