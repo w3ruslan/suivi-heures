@@ -1,0 +1,368 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Suivi des Heures</title>
+<style>
+  :root{
+    --bg:#0f1729; --card:#1b2438; --card2:#232f4a; --line:#2e3b59;
+    --text:#eaf0ff; --muted:#94a3c4; --accent:#3b82f6; --green:#22c55e;
+    --red:#ef4444; --gold:#f5b301;
+  }
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  body{
+    margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+    background:var(--bg);color:var(--text);padding:16px;max-width:520px;margin:0 auto;
+  }
+  h1{font-size:20px;margin:4px 0 16px;text-align:center}
+  .totals{display:flex;gap:12px;margin-bottom:18px}
+  .total-box{
+    flex:1;background:linear-gradient(145deg,var(--card),var(--card2));
+    border:1px solid var(--line);border-radius:18px;padding:16px;text-align:center;
+  }
+  .total-box .label{font-size:12px;color:var(--muted);margin-bottom:6px;text-transform:uppercase;letter-spacing:.5px}
+  .total-box .value{font-size:28px;font-weight:700}
+  .total-box.money .value{color:var(--gold)}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:18px;padding:16px;margin-bottom:16px}
+  .card h2{font-size:15px;margin:0 0 12px;color:var(--muted);font-weight:600}
+  .row{display:flex;gap:10px;align-items:center}
+  label.field{flex:1;display:flex;flex-direction:column;gap:6px;font-size:12px;color:var(--muted)}
+  input[type=date],input[type=time],input[type=number],input[type=text],select{
+    background:var(--bg);border:1px solid var(--line);color:var(--text);
+    border-radius:12px;padding:12px;font-size:16px;width:100%;
+  }
+  button{border:none;border-radius:12px;padding:13px 16px;font-size:15px;font-weight:600;cursor:pointer;color:#fff;transition:transform .05s}
+  button:active{transform:scale(.97)}
+  .btn-green{background:var(--green)}
+  .btn-blue{background:var(--accent)}
+  .btn-red{background:var(--red)}
+  .btn-ghost{background:var(--card2);color:var(--text)}
+  .btn-full{width:100%;margin-top:10px}
+  .open-session{background:rgba(34,197,94,.12);border:1px solid var(--green);border-radius:12px;padding:12px;margin-bottom:12px;font-size:14px}
+  .records{list-style:none;padding:0;margin:0}
+  .rec{display:flex;justify-content:space-between;align-items:center;padding:12px;border-radius:12px;background:var(--card2);margin-bottom:8px}
+  .rec .info{font-size:14px}
+  .rec .info small{color:var(--muted);display:block;font-size:12px;margin-top:2px}
+  .rec .amount{text-align:right}
+  .rec .amount b{color:var(--gold)}
+  .rec .del{background:none;color:var(--red);padding:6px 8px;font-size:18px}
+  .empty{color:var(--muted);text-align:center;padding:20px;font-size:14px}
+  .worker-item{display:flex;justify-content:space-between;align-items:center;padding:10px 12px;background:var(--card2);border-radius:12px;margin-bottom:8px;font-size:14px}
+  .worker-item .del{background:none;color:var(--red);padding:4px 8px;font-size:16px}
+  .divider{height:1px;background:var(--line);margin:16px 0}
+
+  /* PIN modal */
+  .overlay{position:fixed;inset:0;background:rgba(8,12,22,.85);backdrop-filter:blur(6px);display:none;align-items:center;justify-content:center;z-index:50}
+  .overlay.show{display:flex}
+  .pinbox{text-align:center;width:300px}
+  .pinbox h3{font-weight:500;margin-bottom:6px}
+  .pinbox .sub{color:var(--muted);font-size:13px;margin-bottom:22px}
+  .dots{display:flex;gap:12px;justify-content:center;margin-bottom:28px}
+  .dot{width:14px;height:14px;border-radius:50%;border:2px solid var(--muted)}
+  .dot.filled{background:var(--text);border-color:var(--text)}
+  .dot.error{border-color:var(--red);background:var(--red)}
+  .pad{display:grid;grid-template-columns:repeat(3,1fr);gap:18px;justify-items:center}
+  .key{width:72px;height:72px;border-radius:50%;background:rgba(255,255,255,.08);color:var(--text);font-size:28px;font-weight:400;display:flex;align-items:center;justify-content:center;cursor:pointer;border:1px solid rgba(255,255,255,.06)}
+  .key:active{background:rgba(255,255,255,.2)}
+  .key.fn{font-size:15px;background:none;border:none}
+  .admin-panel{display:none}
+  .admin-panel.show{display:block}
+  .tag{display:inline-block;background:var(--accent);color:#fff;font-size:11px;padding:2px 8px;border-radius:8px;margin-left:6px;vertical-align:middle}
+</style>
+</head>
+<body>
+
+<h1>⏱️ Suivi des Heures</h1>
+
+<!-- TOTAUX EN HAUT -->
+<div class="totals">
+  <div class="total-box">
+    <div class="label">Total Heures</div>
+    <div class="value" id="totalHours">0</div>
+  </div>
+  <div class="total-box money">
+    <div class="label">Montant Dû</div>
+    <div class="value" id="totalMoney">0 €</div>
+  </div>
+</div>
+
+<!-- ENTRÉE / SORTIE -->
+<div class="card">
+  <h2>Entrée / Sortie</h2>
+  <label class="field" style="margin-bottom:12px">Employé
+    <select id="workerSelect" onchange="render()"></select>
+  </label>
+  <div id="openSessionBox"></div>
+  <div class="row">
+    <label class="field">Date
+      <input type="date" id="inDate">
+    </label>
+    <label class="field">Heure
+      <input type="time" id="inTime">
+    </label>
+  </div>
+  <button class="btn-green btn-full" id="actionBtn" onclick="handleAction()">Enregistrer l'entrée</button>
+</div>
+
+<!-- HISTORIQUE -->
+<div class="card">
+  <h2>Historique</h2>
+  <ul class="records" id="recordList"></ul>
+</div>
+
+<!-- ACCÈS ADMIN -->
+<button class="btn-ghost btn-full" onclick="openPin()">🔒 Panneau Admin</button>
+
+<!-- PANNEAU ADMIN -->
+<div class="card admin-panel" id="adminPanel" style="margin-top:16px">
+  <h2>Panneau Admin <span class="tag">Autorisé</span></h2>
+
+  <h2 style="margin-top:4px">👷 Employés</h2>
+  <div id="workerAdminList"></div>
+  <div class="row" style="margin-top:8px">
+    <input type="text" id="newWorkerName" placeholder="Nom du nouvel employé">
+    <button class="btn-blue" onclick="addWorker()" style="white-space:nowrap">Ajouter</button>
+  </div>
+
+  <div class="divider"></div>
+
+  <label class="field" style="margin-bottom:12px">Tarif horaire (€)
+    <input type="number" id="rateInput" min="0" step="0.5">
+  </label>
+  <button class="btn-blue btn-full" onclick="saveRate()">Enregistrer le tarif</button>
+
+  <div class="divider"></div>
+
+  <button class="btn-red btn-full" onclick="clearAll()">⚠️ Supprimer tout</button>
+  <button class="btn-ghost btn-full" onclick="lockAdmin()">Verrouiller</button>
+</div>
+
+<!-- OVERLAY PIN -->
+<div class="overlay" id="pinOverlay">
+  <div class="pinbox">
+    <h3>Entrez le code PIN</h3>
+    <div class="sub">Pour la suppression et le tarif</div>
+    <div class="dots" id="dots">
+      <div class="dot"></div><div class="dot"></div><div class="dot"></div>
+      <div class="dot"></div><div class="dot"></div><div class="dot"></div>
+    </div>
+    <div class="pad">
+      <div class="key" onclick="press('1')">1</div>
+      <div class="key" onclick="press('2')">2</div>
+      <div class="key" onclick="press('3')">3</div>
+      <div class="key" onclick="press('4')">4</div>
+      <div class="key" onclick="press('5')">5</div>
+      <div class="key" onclick="press('6')">6</div>
+      <div class="key" onclick="press('7')">7</div>
+      <div class="key" onclick="press('8')">8</div>
+      <div class="key" onclick="press('9')">9</div>
+      <div class="key fn" onclick="closePin()">Annuler</div>
+      <div class="key" onclick="press('0')">0</div>
+      <div class="key fn" onclick="backspace()">⌫</div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ---- PARAMÈTRES ----
+const ADMIN_PIN = "210919";   // Code PIN admin (6 chiffres)
+const LS_KEY = "suiviHeuresData";
+
+// ---- DONNÉES ----
+let data = JSON.parse(localStorage.getItem(LS_KEY) || "null") || {
+  rate: 10,
+  workers: [],          // {id, name}
+  records: [],          // {workerId, date, in, out, hours}
+  openSessions: {}      // { workerId: {date, in} }
+};
+if(!data.workers) data.workers = [];
+if(!data.openSessions) data.openSessions = {};
+if(!data.records) data.records = [];
+
+function save(){ localStorage.setItem(LS_KEY, JSON.stringify(data)); }
+
+// ---- AIDES ----
+function nowTime(){
+  const d=new Date();
+  return String(d.getHours()).padStart(2,'0')+":"+String(d.getMinutes()).padStart(2,'0');
+}
+function todayDate(){
+  const d=new Date();
+  return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,'0')+"-"+String(d.getDate()).padStart(2,'0');
+}
+function diffHours(d1,t1,d2,t2){
+  const a=new Date(d1+"T"+t1), b=new Date(d2+"T"+t2);
+  return Math.round((b-a)/36e5*100)/100;
+}
+function fmt(n){ return Number(n).toFixed(2).replace(/\.00$/,'').replace(/(\.\d)0$/,'$1'); }
+function currentWorkerId(){ return document.getElementById('workerSelect').value; }
+
+// ---- ENTRÉE / SORTIE ----
+function handleAction(){
+  const wid = currentWorkerId();
+  if(!wid){ alert("Ajoutez et sélectionnez d'abord un employé via le panneau admin."); return; }
+  const date = document.getElementById('inDate').value || todayDate();
+  const time = document.getElementById('inTime').value || nowTime();
+  const open = data.openSessions[wid];
+  if(!open){
+    data.openSessions[wid] = {date, in:time};
+  } else {
+    const hours = diffHours(open.date, open.in, date, time);
+    if(hours<=0){ alert("L'heure de sortie doit être après l'entrée."); return; }
+    data.records.unshift({workerId:wid, date:open.date, in:open.in, out:time, hours});
+    delete data.openSessions[wid];
+  }
+  save(); render();
+}
+
+// ---- AFFICHAGE ----
+function render(){
+  const sel = document.getElementById('workerSelect');
+  const prev = sel.value;
+  if(data.workers.length===0){
+    sel.innerHTML = '<option value="">— aucun employé (ajouter via admin) —</option>';
+  } else {
+    sel.innerHTML = data.workers.map(w=>`<option value="${w.id}">${w.name}</option>`).join('');
+    if(prev && data.workers.some(w=>w.id===prev)) sel.value = prev;
+  }
+  const wid = sel.value;
+
+  const recs = data.records.filter(r=>r.workerId===wid);
+  const totalH = recs.reduce((s,r)=>s+r.hours,0);
+  document.getElementById('totalHours').textContent = fmt(totalH);
+  document.getElementById('totalMoney').textContent = fmt(totalH*data.rate)+" €";
+
+  const box = document.getElementById('openSessionBox');
+  const btn = document.getElementById('actionBtn');
+  const open = data.openSessions[wid];
+  if(open){
+    box.innerHTML = `<div class="open-session">🟢 Entrée enregistrée : <b>${open.date} ${open.in}</b><br>Entrez maintenant l'heure de sortie.</div>`;
+    btn.textContent = "Enregistrer la sortie";
+    btn.className = "btn-red btn-full";
+    document.getElementById('inTime').value = nowTime();
+  } else {
+    box.innerHTML = "";
+    btn.textContent = "Enregistrer l'entrée";
+    btn.className = "btn-green btn-full";
+    document.getElementById('inDate').value = todayDate();
+    document.getElementById('inTime').value = nowTime();
+  }
+
+  const list = document.getElementById('recordList');
+  if(recs.length===0){
+    list.innerHTML = '<div class="empty">Aucun enregistrement.</div>';
+  } else {
+    list.innerHTML = recs.map(r=>{
+      const idx = data.records.indexOf(r);
+      return `<li class="rec">
+        <div class="info">${r.date}<small>${r.in} → ${r.out} · ${fmt(r.hours)} h</small></div>
+        <div class="amount"><b>${fmt(r.hours*data.rate)} €</b></div>
+        <button class="del" onclick="askDelete(${idx})">🗑️</button>
+      </li>`;
+    }).join('');
+  }
+
+  document.getElementById('rateInput').value = data.rate;
+  renderWorkerAdmin();
+}
+
+function renderWorkerAdmin(){
+  const el = document.getElementById('workerAdminList');
+  if(data.workers.length===0){
+    el.innerHTML = '<div class="empty" style="padding:8px">Aucun employé.</div>';
+  } else {
+    el.innerHTML = data.workers.map(w=>`
+      <div class="worker-item"><span>${w.name}</span>
+        <button class="del" onclick="removeWorker('${w.id}')">🗑️</button>
+      </div>`).join('');
+  }
+}
+
+// ---- GESTION DES EMPLOYÉS (admin) ----
+function addWorker(){
+  const inp = document.getElementById('newWorkerName');
+  const name = inp.value.trim();
+  if(!name){ alert("Entrez un nom."); return; }
+  data.workers.push({id:"w"+Date.now(), name});
+  inp.value="";
+  save(); render();
+}
+function removeWorker(id){
+  const w = data.workers.find(x=>x.id===id);
+  if(!confirm(`Supprimer "${w.name}" ? (Ses enregistrements seront aussi supprimés)`)) return;
+  data.workers = data.workers.filter(x=>x.id!==id);
+  data.records = data.records.filter(r=>r.workerId!==id);
+  delete data.openSessions[id];
+  save(); render();
+}
+
+// ---- SUPPRESSION (avec PIN) ----
+let pendingDelete = null;
+function askDelete(i){ pendingDelete = i; openPin(); }
+function clearAll(){
+  if(confirm("Supprimer TOUS les enregistrements ?")){
+    data.records=[]; data.openSessions={}; save(); render();
+  }
+}
+
+// ---- ADMIN ----
+function saveRate(){
+  const v = parseFloat(document.getElementById('rateInput').value);
+  if(isNaN(v)||v<0){ alert("Entrez un tarif valide."); return; }
+  data.rate=v; save(); render(); alert("Tarif enregistré : "+v+" €/h");
+}
+function lockAdmin(){ document.getElementById('adminPanel').classList.remove('show'); }
+
+// ---- PIN ----
+let pinEntry="", pinMode="admin";
+function openPin(){
+  pinMode = pendingDelete!==null ? "delete" : "admin";
+  pinEntry=""; updateDots();
+  document.getElementById('pinOverlay').classList.add('show');
+}
+function closePin(){
+  document.getElementById('pinOverlay').classList.remove('show');
+  pinEntry=""; pendingDelete=null;
+}
+function press(n){
+  if(pinEntry.length>=6) return;
+  pinEntry+=n; updateDots();
+  if(pinEntry.length===6) setTimeout(checkPin,150);
+}
+function backspace(){ pinEntry=pinEntry.slice(0,-1); updateDots(); }
+function updateDots(){
+  document.querySelectorAll('#dots .dot').forEach((d,i)=>{
+    d.className="dot"+(i<pinEntry.length?" filled":"");
+  });
+}
+function checkPin(){
+  if(pinEntry===ADMIN_PIN){
+    document.getElementById('pinOverlay').classList.remove('show');
+    if(pinMode==="delete" && pendingDelete!==null){
+      data.records.splice(pendingDelete,1);
+      pendingDelete=null; save(); render();
+    } else {
+      document.getElementById('adminPanel').classList.add('show');
+    }
+    pinEntry="";
+  } else {
+    document.querySelectorAll('#dots .dot').forEach(d=>d.className="dot error");
+    setTimeout(()=>{ pinEntry=""; updateDots(); },400);
+  }
+}
+
+// ---- DÉMARRAGE ----
+document.getElementById('inDate').value = todayDate();
+document.getElementById('inTime').value = nowTime();
+render();
+
+document.addEventListener('visibilitychange', ()=>{
+  if(!document.hidden && !data.openSessions[currentWorkerId()]){
+    document.getElementById('inDate').value = todayDate();
+    document.getElementById('inTime').value = nowTime();
+  }
+});
+</script>
+</body>
+</html>
