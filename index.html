@@ -100,9 +100,12 @@
   </label>
   <div id="openSessionBox"></div>
   <div class="row dt-row">
-    <label class="field">Date
+    <label class="field">
+      <span style="display:flex;justify-content:space-between;align-items:center">
+        <span>Date</span>
+        <span id="dayLabel" style="color:var(--accent);font-weight:600"></span>
+      </span>
       <input type="date" id="inDate" onchange="updateDayLabel()">
-      <span id="dayLabel" style="color:var(--accent);font-weight:600;font-size:13px"></span>
     </label>
     <label class="field">Heure
       <input type="time" id="inTime">
