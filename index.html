@@ -214,7 +214,7 @@ function saveLocal(){ localStorage.setItem(LS_KEY, JSON.stringify(data)); }
 function save(){ saveLocal(); localStorage.setItem('pendingSync','1'); scheduleSync(); }
 function requireToken(){
   if(ghToken) return true;
-  alert("Pour enregistrer ou modifier, connectez d'abord votre token :\nPanneau Admin (210919) → Synchronisation.");
+  alert("Pour enregistrer, connectez d'abord votre token :\nPanneau Admin → Synchronisation.");
   return false;
 }
 
