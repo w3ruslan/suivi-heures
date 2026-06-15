@@ -104,7 +104,8 @@
       <input type="time" id="inTime">
     </label>
   </div>
-  <button class="btn-green btn-full" id="actionBtn" onclick="handleAction()">Enregistrer l'entrée</button>
+  <button class="btn-green btn-full" onclick="doEntree()">Enregistrer l'entrée</button>
+  <button class="btn-red btn-full" onclick="doSortie()">Enregistrer la sortie</button>
 </div>
 
 <!-- HISTORIQUE -->
@@ -292,20 +293,27 @@ function updateDayLabel(){
 }
 
 // ---- ENTRÉE / SORTIE ----
-function handleAction(){
+function doEntree(){
   const wid = currentWorkerId();
   if(!wid){ alert("Ajoutez et sélectionnez d'abord un employé via le panneau admin."); return; }
+  if(data.openSessions[wid]){ alert("Une entrée est déjà en cours. Enregistrez d'abord la sortie."); return; }
   const date = document.getElementById('inDate').value || todayDate();
   const time = document.getElementById('inTime').value || nowTime();
+  data.openSessions[wid] = {date, in:time};
+  save(); render();
+}
+
+function doSortie(){
+  const wid = currentWorkerId();
+  if(!wid){ alert("Ajoutez et sélectionnez d'abord un employé via le panneau admin."); return; }
   const open = data.openSessions[wid];
-  if(!open){
-    data.openSessions[wid] = {date, in:time};
-  } else {
-    const hours = diffHours(open.date, open.in, date, time);
-    if(hours<=0){ alert("L'heure de sortie doit être après l'entrée."); return; }
-    data.records.unshift({workerId:wid, date:open.date, in:open.in, out:time, hours});
-    delete data.openSessions[wid];
-  }
+  if(!open){ alert("Enregistrez d'abord une entrée."); return; }
+  const date = document.getElementById('inDate').value || todayDate();
+  const time = document.getElementById('inTime').value || nowTime();
+  const hours = diffHours(open.date, open.in, date, time);
+  if(hours<=0){ alert("L'heure de sortie doit être après l'entrée."); return; }
+  data.records.unshift({workerId:wid, date:open.date, in:open.in, out:time, hours});
+  delete data.openSessions[wid];
   save(); render();
 }
 
@@ -327,17 +335,12 @@ function render(){
   document.getElementById('totalMoney').textContent = fmt(totalH*data.rate)+" €";
 
   const box = document.getElementById('openSessionBox');
-  const btn = document.getElementById('actionBtn');
   const open = data.openSessions[wid];
   if(open){
-    box.innerHTML = `<div class="open-session">🟢 Entrée enregistrée : <b>${open.date} ${open.in}</b><br>Entrez maintenant l'heure de sortie.</div>`;
-    btn.textContent = "Enregistrer la sortie";
-    btn.className = "btn-red btn-full";
+    box.innerHTML = `<div class="open-session">🟢 Entrée enregistrée : <b>${dayName(open.date)} ${open.date} ${open.in}</b><br>Entrez maintenant l'heure de sortie.</div>`;
     document.getElementById('inTime').value = nowTime();
   } else {
     box.innerHTML = "";
-    btn.textContent = "Enregistrer l'entrée";
-    btn.className = "btn-green btn-full";
     document.getElementById('inDate').value = todayDate();
     document.getElementById('inTime').value = nowTime();
   }
