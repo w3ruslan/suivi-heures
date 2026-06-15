@@ -154,13 +154,9 @@
 
   <h2 style="margin-top:4px">☁️ Synchronisation</h2>
   <p style="font-size:12px;color:var(--muted);margin:0 0 10px;line-height:1.5">
-    Collez votre token GitHub pour partager les données entre tous vos appareils.
-    <a href="https://github.com/settings/personal-access-tokens/new" target="_blank" style="color:var(--accent)">Créer un token</a>
+    Les données sont enregistrées automatiquement et partagées entre tous les appareils. Aucune configuration nécessaire.
   </p>
-  <input type="text" id="tokenInput" placeholder="github_pat_..." style="margin-bottom:8px">
-  <button class="btn-blue btn-full" onclick="connectSync()">Connecter</button>
   <button class="btn-ghost btn-full" onclick="pullData()">🔄 Actualiser depuis le cloud</button>
-  <button class="btn-ghost btn-full" onclick="disconnectSync()">Déconnecter</button>
 
   <div class="divider"></div>
 
@@ -212,23 +208,12 @@ if(!data.records) data.records = [];
 
 function saveLocal(){ localStorage.setItem(LS_KEY, JSON.stringify(data)); }
 function save(){ saveLocal(); localStorage.setItem('pendingSync','1'); scheduleSync(); }
-function requireToken(){
-  if(ghToken) return true;
-  alert("Pour enregistrer, connectez d'abord votre token :\nPanneau Admin → Synchronisation.");
-  return false;
-}
+// ---- SYNCHRONISATION (via Cloudflare Worker — le token reste secret côté serveur) ----
+const WORKER_URL = "https://httpssuivi-heuresw3ruslan-8c5workersdev.w3ruslan-8c5.workers.dev";
+let syncTimer = null;
 
-// ---- SYNCHRONISATION GITHUB ----
-const SYNC = { owner:"w3ruslan", repo:"suivi-heures-data", path:"data.json", branch:"main" };
-let ghToken = localStorage.getItem("ghToken") || "";
-let ghSha = null, syncTimer = null;
-
-function b64encode(s){ return btoa(unescape(encodeURIComponent(s))); }
-function b64decode(s){ return decodeURIComponent(escape(atob(s))); }
-function ghHeaders(){ const h={"Accept":"application/vnd.github+json"}; if(ghToken) h["Authorization"]="Bearer "+ghToken; return h; }
 function isEmpty(o){ return (!o.workers||o.workers.length===0) && (!o.records||o.records.length===0); }
 function setSyncStatus(t){ const e=document.getElementById('syncStatus'); if(e) e.textContent=t; }
-function ghUrl(){ return `https://api.github.com/repos/${SYNC.owner}/${SYNC.repo}/contents/${SYNC.path}`; }
 function normalize(o){
   o = o || {};
   if(typeof o.rate!=='number') o.rate = 10;
@@ -237,92 +222,39 @@ function normalize(o){
   if(!o.openSessions || typeof o.openSessions!=='object') o.openSessions = {};
   return o;
 }
-// Fusion local + cloud (utilisé uniquement à la connexion, pour ne rien perdre)
-function mergeData(local, cloud){
-  local = normalize(local); cloud = normalize(cloud);
-  const wmap = {};
-  [...cloud.workers, ...local.workers].forEach(w=>{ wmap[w.id]=w; });
-  const rmap = {};
-  [...cloud.records, ...local.records].forEach(r=>{ rmap[[r.workerId,r.date,r.in,r.out].join('|')]=r; });
-  const records = Object.values(rmap).sort((a,b)=>(b.date+b.in).localeCompare(a.date+a.in));
-  const openSessions = Object.assign({}, cloud.openSessions, local.openSessions);
-  let rate = cloud.rate;
-  if(cloud.rate===10 && local.rate!==10) rate = local.rate;
-  return { rate, workers:Object.values(wmap), records, openSessions };
-}
 
 async function pullData(){
   setSyncStatus("⏳ Chargement...");
   try{
-    const r = await fetch(ghUrl()+"?ref="+SYNC.branch+"&t="+Date.now(), {headers:ghHeaders(), cache:"no-store"});
+    const r = await fetch(WORKER_URL+"?t="+Date.now(), {cache:"no-store"});
     if(!r.ok) throw new Error("HTTP "+r.status);
-    const j = await r.json();
-    ghSha = j.sha;
-    const cloud = normalize(JSON.parse(b64decode(j.content)));
+    const cloud = normalize(await r.json());
     const pending = localStorage.getItem('pendingSync')==='1';
-    if(pending && ghToken){
-      // changements locaux pas encore envoyés : on pousse au lieu d'écraser (anti perte)
-      await pushData(); return;
-    } else if(pending && !ghToken){
-      // données locales non synchronisées : on les garde, mais il faut un token
-      render();
-      setSyncStatus("⚠️ Non synchronisé — connectez le token");
-      return;
+    if(pending){
+      await pushData(); return;              // changements locaux non envoyés (anti perte)
     } else if(isEmpty(cloud) && !isEmpty(data)){
-      if(ghToken){ await pushData(); return; }
+      await pushData(); return;              // cloud vide + données locales : on amorce
     } else {
       data = cloud; saveLocal(); render();
     }
-    setSyncStatus(ghToken ? "☁️ Synchronisé" : "👁️ Données chargées");
-  }catch(e){ setSyncStatus("⚠️ Erreur ("+e.message+")"); }
-}
-
-function scheduleSync(){
-  if(!ghToken) return;
-  setSyncStatus("✎ Modifié...");
-  clearTimeout(syncTimer);
-  syncTimer = setTimeout(pushData, 1200);
-}
-
-async function pushData(){
-  if(!ghToken) return;
-  setSyncStatus("⏳ Sauvegarde...");
-  try{
-    // dernier sha pour éviter les conflits
-    let sha = ghSha;
-    try{
-      const g = await fetch(ghUrl()+"?ref="+SYNC.branch+"&t="+Date.now(), {headers:ghHeaders(), cache:"no-store"});
-      if(g.ok){ sha = (await g.json()).sha; }
-    }catch(e){}
-    const body = { message:"Mise à jour des heures", content:b64encode(JSON.stringify(data)), branch:SYNC.branch };
-    if(sha) body.sha = sha;
-    const r = await fetch(ghUrl(), {method:"PUT", headers:ghHeaders(), body:JSON.stringify(body)});
-    if(!r.ok) throw new Error("HTTP "+r.status);
-    ghSha = (await r.json()).content.sha;
-    localStorage.removeItem('pendingSync');
     setSyncStatus("☁️ Synchronisé");
   }catch(e){ setSyncStatus("⚠️ Erreur ("+e.message+")"); }
 }
 
-async function connectSync(){
-  const t = document.getElementById('tokenInput').value.trim();
-  if(!t){ alert("Collez votre token GitHub."); return; }
-  ghToken = t; localStorage.setItem("ghToken", t);
-  document.getElementById('tokenInput').value = "";
-  setSyncStatus("⏳ Connexion...");
-  try{
-    const r = await fetch(ghUrl()+"?ref="+SYNC.branch+"&t="+Date.now(), {headers:ghHeaders(), cache:"no-store"});
-    if(!r.ok) throw new Error("HTTP "+r.status);
-    const j = await r.json();
-    ghSha = j.sha;
-    const cloud = normalize(JSON.parse(b64decode(j.content)));
-    data = mergeData(data, cloud);   // rien n'est perdu : local + cloud
-    saveLocal(); render();
-    await pushData();                // écrit le résultat fusionné dans le cloud
-  }catch(e){ setSyncStatus("⚠️ Erreur ("+e.message+")"); }
+function scheduleSync(){
+  setSyncStatus("✎ Enregistrement...");
+  clearTimeout(syncTimer);
+  syncTimer = setTimeout(pushData, 800);
 }
-function disconnectSync(){
-  ghToken=""; localStorage.removeItem("ghToken"); setSyncStatus("👁️ Lecture seule");
+
+async function pushData(){
+  setSyncStatus("⏳ Enregistrement...");
+  try{
+    const r = await fetch(WORKER_URL, {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(data)});
+    if(!r.ok) throw new Error("HTTP "+r.status);
+    localStorage.removeItem('pendingSync');
+    setSyncStatus("☁️ Synchronisé");
+  }catch(e){ setSyncStatus("⚠️ Erreur ("+e.message+")"); }
 }
 
 // ---- AIDES ----
@@ -351,7 +283,6 @@ function updateDayLabel(){
 
 // ---- ENTRÉE / SORTIE ----
 function doEntree(){
-  if(!requireToken()) return;
   const wid = currentWorkerId();
   if(!wid){ alert("Ajoutez et sélectionnez d'abord un employé via le panneau admin."); return; }
   if(data.openSessions[wid]){ alert("Une entrée est déjà en cours. Enregistrez d'abord la sortie."); return; }
@@ -362,7 +293,6 @@ function doEntree(){
 }
 
 function doSortie(){
-  if(!requireToken()) return;
   const wid = currentWorkerId();
   if(!wid){ alert("Ajoutez et sélectionnez d'abord un employé via le panneau admin."); return; }
   const open = data.openSessions[wid];
@@ -465,7 +395,6 @@ function renderWorkerAdmin(){
 
 // ---- GESTION DES EMPLOYÉS (admin) ----
 function addWorker(){
-  if(!requireToken()) return;
   const inp = document.getElementById('newWorkerName');
   const name = inp.value.trim();
   if(!name){ alert("Entrez un nom."); return; }
@@ -483,12 +412,11 @@ function removeWorker(id){
 }
 
 // ---- SUPPRESSION (avec PIN) ----
-function askDelete(i){ if(!requireToken()) return; openPin({type:'delete', index:i}); }
-function clearAll(){ if(!requireToken()) return; openPin({type:'clearAll'}); }
+function askDelete(i){ openPin({type:'delete', index:i}); }
+function clearAll(){ openPin({type:'clearAll'}); }
 
 // ---- ADMIN ----
 function saveRate(){
-  if(!requireToken()) return;
   const v = parseFloat(document.getElementById('rateInput').value);
   if(isNaN(v)||v<0){ alert("Entrez un tarif valide."); return; }
   data.rate=v; save(); render(); alert("Tarif enregistré : "+v+" €/h");
