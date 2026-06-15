@@ -74,6 +74,7 @@
 <body>
 
 <h1>⏱️ Suivi des Heures</h1>
+<div id="syncStatus" style="text-align:center;font-size:12px;color:var(--muted);margin:-8px 0 14px">🔌 Non connecté</div>
 
 <!-- TOTAUX EN HAUT -->
 <div class="totals">
@@ -135,6 +136,18 @@
 
   <div class="divider"></div>
 
+  <h2 style="margin-top:4px">☁️ Synchronisation</h2>
+  <p style="font-size:12px;color:var(--muted);margin:0 0 10px;line-height:1.5">
+    Collez votre token GitHub pour partager les données entre tous vos appareils.
+    <a href="https://github.com/settings/personal-access-tokens/new" target="_blank" style="color:var(--accent)">Créer un token</a>
+  </p>
+  <input type="text" id="tokenInput" placeholder="github_pat_..." style="margin-bottom:8px">
+  <button class="btn-blue btn-full" onclick="connectSync()">Connecter</button>
+  <button class="btn-ghost btn-full" onclick="pullData()">🔄 Actualiser depuis le cloud</button>
+  <button class="btn-ghost btn-full" onclick="disconnectSync()">Déconnecter</button>
+
+  <div class="divider"></div>
+
   <button class="btn-red btn-full" onclick="clearAll()">⚠️ Supprimer tout</button>
   <button class="btn-ghost btn-full" onclick="lockAdmin()">Verrouiller</button>
 </div>
@@ -181,7 +194,78 @@ if(!data.workers) data.workers = [];
 if(!data.openSessions) data.openSessions = {};
 if(!data.records) data.records = [];
 
-function save(){ localStorage.setItem(LS_KEY, JSON.stringify(data)); }
+function saveLocal(){ localStorage.setItem(LS_KEY, JSON.stringify(data)); }
+function save(){ saveLocal(); scheduleSync(); }
+
+// ---- SYNCHRONISATION GITHUB ----
+const SYNC = { owner:"w3ruslan", repo:"suivi-heures-data", path:"data.json", branch:"main" };
+let ghToken = localStorage.getItem("ghToken") || "";
+let ghSha = null, syncTimer = null;
+
+function b64encode(s){ return btoa(unescape(encodeURIComponent(s))); }
+function b64decode(s){ return decodeURIComponent(escape(atob(s))); }
+function ghHeaders(){ return {"Authorization":"Bearer "+ghToken, "Accept":"application/vnd.github+json"}; }
+function setSyncStatus(t){ const e=document.getElementById('syncStatus'); if(e) e.textContent=t; }
+function ghUrl(){ return `https://api.github.com/repos/${SYNC.owner}/${SYNC.repo}/contents/${SYNC.path}`; }
+function normalize(o){
+  o = o || {};
+  if(typeof o.rate!=='number') o.rate = 10;
+  if(!Array.isArray(o.workers)) o.workers = [];
+  if(!Array.isArray(o.records)) o.records = [];
+  if(!o.openSessions || typeof o.openSessions!=='object') o.openSessions = {};
+  return o;
+}
+
+async function pullData(){
+  if(!ghToken){ setSyncStatus("🔌 Non connecté"); return; }
+  setSyncStatus("⏳ Chargement...");
+  try{
+    const r = await fetch(ghUrl()+"?ref="+SYNC.branch+"&t="+Date.now(), {headers:ghHeaders(), cache:"no-store"});
+    if(!r.ok) throw new Error("HTTP "+r.status);
+    const j = await r.json();
+    ghSha = j.sha;
+    data = normalize(JSON.parse(b64decode(j.content)));
+    saveLocal(); render();
+    setSyncStatus("☁️ Synchronisé");
+  }catch(e){ setSyncStatus("⚠️ Erreur ("+e.message+")"); }
+}
+
+function scheduleSync(){
+  if(!ghToken) return;
+  setSyncStatus("✎ Modifié...");
+  clearTimeout(syncTimer);
+  syncTimer = setTimeout(pushData, 1200);
+}
+
+async function pushData(){
+  if(!ghToken) return;
+  setSyncStatus("⏳ Sauvegarde...");
+  try{
+    // dernier sha pour éviter les conflits
+    let sha = ghSha;
+    try{
+      const g = await fetch(ghUrl()+"?ref="+SYNC.branch+"&t="+Date.now(), {headers:ghHeaders(), cache:"no-store"});
+      if(g.ok){ sha = (await g.json()).sha; }
+    }catch(e){}
+    const body = { message:"Mise à jour des heures", content:b64encode(JSON.stringify(data)), branch:SYNC.branch };
+    if(sha) body.sha = sha;
+    const r = await fetch(ghUrl(), {method:"PUT", headers:ghHeaders(), body:JSON.stringify(body)});
+    if(!r.ok) throw new Error("HTTP "+r.status);
+    ghSha = (await r.json()).content.sha;
+    setSyncStatus("☁️ Synchronisé");
+  }catch(e){ setSyncStatus("⚠️ Erreur ("+e.message+")"); }
+}
+
+function connectSync(){
+  const t = document.getElementById('tokenInput').value.trim();
+  if(!t){ alert("Collez votre token GitHub."); return; }
+  ghToken = t; localStorage.setItem("ghToken", t);
+  document.getElementById('tokenInput').value = "";
+  pullData();
+}
+function disconnectSync(){
+  ghToken=""; localStorage.removeItem("ghToken"); setSyncStatus("🔌 Non connecté");
+}
 
 // ---- AIDES ----
 function nowTime(){
@@ -368,10 +452,17 @@ document.getElementById('inTime').value = nowTime();
 updateDayLabel();
 render();
 
+// Au démarrage : charger depuis le cloud si connecté
+if(ghToken){ pullData(); } else { setSyncStatus("🔌 Non connecté"); }
+
 document.addEventListener('visibilitychange', ()=>{
-  if(!document.hidden && !data.openSessions[currentWorkerId()]){
-    document.getElementById('inDate').value = todayDate();
-    document.getElementById('inTime').value = nowTime();
+  if(!document.hidden){
+    if(!data.openSessions[currentWorkerId()]){
+      document.getElementById('inDate').value = todayDate();
+      document.getElementById('inTime').value = nowTime();
+    }
+    // de retour sur l'app : récupérer les dernières données
+    if(ghToken) pullData();
   }
 });
 </script>
