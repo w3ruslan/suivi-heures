@@ -216,6 +216,19 @@ function normalize(o){
   if(!o.openSessions || typeof o.openSessions!=='object') o.openSessions = {};
   return o;
 }
+// Fusion local + cloud (utilisé uniquement à la connexion, pour ne rien perdre)
+function mergeData(local, cloud){
+  local = normalize(local); cloud = normalize(cloud);
+  const wmap = {};
+  [...cloud.workers, ...local.workers].forEach(w=>{ wmap[w.id]=w; });
+  const rmap = {};
+  [...cloud.records, ...local.records].forEach(r=>{ rmap[[r.workerId,r.date,r.in,r.out].join('|')]=r; });
+  const records = Object.values(rmap).sort((a,b)=>(b.date+b.in).localeCompare(a.date+a.in));
+  const openSessions = Object.assign({}, cloud.openSessions, local.openSessions);
+  let rate = cloud.rate;
+  if(cloud.rate===10 && local.rate!==10) rate = local.rate;
+  return { rate, workers:Object.values(wmap), records, openSessions };
+}
 
 async function pullData(){
   if(!ghToken){ setSyncStatus("🔌 Non connecté"); return; }
@@ -257,12 +270,22 @@ async function pushData(){
   }catch(e){ setSyncStatus("⚠️ Erreur ("+e.message+")"); }
 }
 
-function connectSync(){
+async function connectSync(){
   const t = document.getElementById('tokenInput').value.trim();
   if(!t){ alert("Collez votre token GitHub."); return; }
   ghToken = t; localStorage.setItem("ghToken", t);
   document.getElementById('tokenInput').value = "";
-  pullData();
+  setSyncStatus("⏳ Connexion...");
+  try{
+    const r = await fetch(ghUrl()+"?ref="+SYNC.branch+"&t="+Date.now(), {headers:ghHeaders(), cache:"no-store"});
+    if(!r.ok) throw new Error("HTTP "+r.status);
+    const j = await r.json();
+    ghSha = j.sha;
+    const cloud = normalize(JSON.parse(b64decode(j.content)));
+    data = mergeData(data, cloud);   // rien n'est perdu : local + cloud
+    saveLocal(); render();
+    await pushData();                // écrit le résultat fusionné dans le cloud
+  }catch(e){ setSyncStatus("⚠️ Erreur ("+e.message+")"); }
 }
 function disconnectSync(){
   ghToken=""; localStorage.removeItem("ghToken"); setSyncStatus("🔌 Non connecté");
