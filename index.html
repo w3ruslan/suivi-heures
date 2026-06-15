@@ -210,7 +210,8 @@ let ghSha = null, syncTimer = null;
 
 function b64encode(s){ return btoa(unescape(encodeURIComponent(s))); }
 function b64decode(s){ return decodeURIComponent(escape(atob(s))); }
-function ghHeaders(){ return {"Authorization":"Bearer "+ghToken, "Accept":"application/vnd.github+json"}; }
+function ghHeaders(){ const h={"Accept":"application/vnd.github+json"}; if(ghToken) h["Authorization"]="Bearer "+ghToken; return h; }
+function isEmpty(o){ return (!o.workers||o.workers.length===0) && (!o.records||o.records.length===0); }
 function setSyncStatus(t){ const e=document.getElementById('syncStatus'); if(e) e.textContent=t; }
 function ghUrl(){ return `https://api.github.com/repos/${SYNC.owner}/${SYNC.repo}/contents/${SYNC.path}`; }
 function normalize(o){
@@ -236,16 +237,20 @@ function mergeData(local, cloud){
 }
 
 async function pullData(){
-  if(!ghToken){ setSyncStatus("🔌 Non connecté"); return; }
   setSyncStatus("⏳ Chargement...");
   try{
     const r = await fetch(ghUrl()+"?ref="+SYNC.branch+"&t="+Date.now(), {headers:ghHeaders(), cache:"no-store"});
     if(!r.ok) throw new Error("HTTP "+r.status);
     const j = await r.json();
     ghSha = j.sha;
-    data = normalize(JSON.parse(b64decode(j.content)));
-    saveLocal(); render();
-    setSyncStatus("☁️ Synchronisé");
+    const cloud = normalize(JSON.parse(b64decode(j.content)));
+    // Protection : si le cloud est vide mais qu'on a des données locales, on garde le local
+    if(isEmpty(cloud) && !isEmpty(data)){
+      if(ghToken) pushData();   // on envoie le local pour amorcer le cloud
+    } else {
+      data = cloud; saveLocal(); render();
+    }
+    setSyncStatus(ghToken ? "☁️ Synchronisé" : "👁️ Données chargées");
   }catch(e){ setSyncStatus("⚠️ Erreur ("+e.message+")"); }
 }
 
@@ -293,7 +298,7 @@ async function connectSync(){
   }catch(e){ setSyncStatus("⚠️ Erreur ("+e.message+")"); }
 }
 function disconnectSync(){
-  ghToken=""; localStorage.removeItem("ghToken"); setSyncStatus("🔌 Non connecté");
+  ghToken=""; localStorage.removeItem("ghToken"); setSyncStatus("👁️ Lecture seule");
 }
 
 // ---- AIDES ----
@@ -508,8 +513,8 @@ document.getElementById('inTime').value = nowTime();
 updateDayLabel();
 render();
 
-// Au démarrage : charger depuis le cloud si connecté
-if(ghToken){ pullData(); } else { setSyncStatus("🔌 Non connecté"); }
+// Au démarrage : toujours charger depuis le cloud (dépôt public, lecture sans token)
+pullData();
 
 document.addEventListener('visibilitychange', ()=>{
   if(!document.hidden){
@@ -518,7 +523,7 @@ document.addEventListener('visibilitychange', ()=>{
       document.getElementById('inTime').value = nowTime();
     }
     // de retour sur l'app : récupérer les dernières données
-    if(ghToken) pullData();
+    pullData();
   }
 });
 </script>
