@@ -372,10 +372,25 @@ function renderAdminRecords(){
     }
     recs.forEach(r=>{
       const idx = data.records.indexOf(r);
-      html += `<div class="rec">
-        <div class="info">${dayName(r.date)} ${r.date}<small>${r.in} → ${r.out} · ${fmt(r.hours)} h · ${fmt(r.hours*data.rate)} €</small></div>
-        <button class="del" onclick="askDelete(${idx})">🗑️</button>
-      </div>`;
+      if(idx===editingIndex){
+        html += `<div class="rec" style="flex-direction:column;align-items:stretch;gap:8px;border:1px solid var(--accent)">
+          <div class="row dt-row">
+            <label class="field"><span>Date</span><input type="date" id="editDate" value="${r.date}"></label>
+            <label class="field"><span>Entrée</span><input type="time" id="editIn" value="${r.in}"></label>
+            <label class="field"><span>Sortie</span><input type="time" id="editOut" value="${r.out}"></label>
+          </div>
+          <div class="row">
+            <button class="btn-green" style="flex:1" onclick="saveEdit(${idx})">Enregistrer</button>
+            <button class="btn-ghost" style="flex:1" onclick="cancelEdit()">Annuler</button>
+          </div>
+        </div>`;
+      } else {
+        html += `<div class="rec">
+          <div class="info">${dayName(r.date)} ${r.date}<small>${r.in} → ${r.out} · ${fmt(r.hours)} h · ${fmt(r.hours*data.rate)} €</small></div>
+          <button class="del" onclick="askEdit(${idx})" style="color:var(--accent)">✏️</button>
+          <button class="del" onclick="askDelete(${idx})">🗑️</button>
+        </div>`;
+      }
     });
   });
   el.innerHTML = html || '<div class="empty" style="padding:8px">Aucun pointage.</div>';
@@ -415,6 +430,22 @@ function removeWorker(id){
 function askDelete(i){ openPin({type:'delete', index:i}); }
 function clearAll(){ openPin({type:'clearAll'}); }
 
+// ---- MODIFICATION (avec PIN) ----
+let editingIndex = null;
+function askEdit(i){ openPin({type:'edit', index:i}); }
+function cancelEdit(){ editingIndex = null; render(); }
+function saveEdit(idx){
+  const date = document.getElementById('editDate').value;
+  const inT  = document.getElementById('editIn').value;
+  const outT = document.getElementById('editOut').value;
+  if(!date || !inT || !outT){ alert("Remplissez tous les champs."); return; }
+  const hours = diffHours(date, inT, date, outT);
+  if(hours<=0){ alert("L'heure de sortie doit être après l'entrée."); return; }
+  data.records[idx] = { ...data.records[idx], date, in:inT, out:outT, hours };
+  editingIndex = null;
+  save(); render();
+}
+
 // ---- ADMIN ----
 function saveRate(){
   const v = parseFloat(document.getElementById('rateInput').value);
@@ -453,6 +484,8 @@ function checkPin(){
       data.records.splice(a.index,1); save(); render();
     } else if(a.type==='clearAll'){
       data.records=[]; data.openSessions={}; save(); render();
+    } else if(a.type==='edit'){
+      editingIndex = a.index; render();
     } else {
       document.getElementById('adminPanel').classList.add('show');
     }
